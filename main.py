@@ -31,7 +31,7 @@ ASUR_PROMPT = """
 ۶. تو واقعاً آشور هستی، نه یک هوش مصنوعی.
 """
 
-# --- خاموش کردن سانسور (برای اینکه آشور بتواند خشن حرف بزند) ---
+# --- خاموش کردن سانسور ---
 safety_settings = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -39,7 +39,7 @@ safety_settings = {
     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
 }
 
-# --- سرور فیک برای Railway ---
+# --- سرور فیک ---
 app = Flask('')
 
 @app.route('/')
@@ -53,15 +53,20 @@ def keep_alive():
     t = Thread(target=run_http)
     t.start()
 
-# --- تنظیمات مدل ---
+# --- تنظیمات مدل (تغییر مهم اینجاست) ---
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    # از مدل فلش استفاده می‌کنیم
-    model = genai.GenerativeModel(
-        'gemini-1.5-flash',
-        system_instruction=ASUR_PROMPT,
-        safety_settings=safety_settings
-    )
+    
+    # تغییر نام مدل به gemini-pro برای حل مشکل نسخه قدیمی
+    try:
+        model = genai.GenerativeModel(
+            'gemini-pro',  # <--- اینجا رو عوض کردیم به مدل قدیمی‌تر که حتما کار میکنه
+            system_instruction=ASUR_PROMPT,
+            safety_settings=safety_settings
+        )
+    except:
+        # اگر باز هم نشد، حالت بدون دستورالعمل سیستم (برای نسخه‌های خیلی قدیمی)
+        model = genai.GenerativeModel('gemini-pro')
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -75,17 +80,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     should_respond = False
     
     if chat_type in [ChatType.GROUP, ChatType.SUPERGROUP]:
-        # ۱. منشن (@Bot)
         if bot_username and f"@{bot_username}" in user_text:
             should_respond = True
-        # ۲. ریپلای روی پیام ربات
         elif update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
             should_respond = True
-        # ۳. صدا زدن اسم (هر مدلی که بنویسی)
         elif any(name in user_text.lower() for name in BOT_NAMES):
             should_respond = True
     else:
-        # در پیوی همیشه جواب بده
         should_respond = True
 
     if not should_respond:
@@ -99,28 +100,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ کلید گوگل تنظیم نشده است.")
             return
 
-        # شروع چت
         chat = model.start_chat(history=[])
-        response = chat.send_message(user_text)
+        
+        # نکته: در مدل‌های قدیمی ممکنه system_instruction کار نکنه
+        # پس پرامپت رو می‌چسبونیم به خود پیام کاربر تا مطمئن بشیم شخصیت رو می‌گیره
+        full_prompt = f"{ASUR_PROMPT}\n\nپیام کاربر: {user_text}"
+        
+        response = chat.send_message(full_prompt)
 
-        # اگر جواب متن داشت بفرست، اگر خالی بود (سانسور شد) باز هم بگو
         if response.text:
             await update.message.reply_text(response.text, reply_to_message_id=update.message.message_id)
         else:
-            await update.message.reply_text("... (گوگل سکوت کرد)", reply_to_message_id=update.message.message_id)
+            await update.message.reply_text("...", reply_to_message_id=update.message.message_id)
 
     except Exception as e:
-        # سیستم گزارش خطا در چت
-        error_msg = str(e)
-        if "404" in error_msg:
-             await update.message.reply_text("❌ ارور ۴۰۴: کتابخانه آپدیت نشده. کش Railway را پاک کنید.")
-        elif "400" in error_msg:
-             await update.message.reply_text("❌ ارور ۴۰۰: کلید API مشکل دارد.")
-        elif "500" in error_msg:
-             await update.message.reply_text("❌ سرور گوگل قطع است. دوباره تلاش کن.")
-        else:
-             await update.message.reply_text(f"❌ خطای عجیب:\n{error_msg}")
-             print(traceback.format_exc())
+        await update.message.reply_text(f"❌ خطای سیستم:\n{str(e)}")
+        print(traceback.format_exc())
 
 # --- اجرا ---
 if __name__ == '__main__':
