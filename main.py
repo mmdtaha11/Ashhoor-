@@ -51,8 +51,8 @@ def keep_alive():
 # --- تنظیمات مدل ---
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel(
-        'gemini-1.5-flash',
+    # مدل نسخه 001 که پایداری بیشتری دارد
+model = genai.GenerativeModel('gemini-1.5-flash-001', ...)
         system_instruction=ASUR_PROMPT,
         safety_settings=safety_settings
     )
