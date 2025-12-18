@@ -1,127 +1,108 @@
 import os
-import traceback
+import json
+import requests
 from threading import Thread
 from flask import Flask
 from telegram import Update
 from telegram.constants import ChatAction, ChatType
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
-import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 # --- دریافت متغیرها ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# --- اسم‌هایی که ربات به آن‌ها حساس است ---
-BOT_NAMES = [
-    "آشور", "اشور", "اشهور", 
-    "asur", "ashur", "ashhoor", 
-    "پادشاه", "king"
-]
+# --- اسم‌های ربات ---
+BOT_NAMES = ["آشور", "اشور", "اشهور", "asur", "ashur", "ashhoor", "پادشاه"]
 
-# --- پرامپت شخصیت آشور ---
+# --- پرامپت شخصیت ---
 ASUR_PROMPT = """
-تو «آشور» (Asur) هستی. پادشاه شیاطین و حامل هفت گناه کبیره.
-قوانین:
-۱. فقط فارسی صحبت کن.
-۲. لحن: سرد، خشن، کوتاه، دستوری و پادشاه‌گونه.
-۳. فلسفه تو: "هیچ‌کس نجات‌دهنده نیست. من خودم را نجات می‌دهم."
-۴. اگر کسی تو را صدا زد، با ابهت جواب بده.
-۵. اگر سوال احمقانه‌ای پرسیدند، تحقیرشان کن.
-۶. تو واقعاً آشور هستی، نه یک هوش مصنوعی.
+System: You are Asur, the Demon King.
+Language: Persian (Farsi) ONLY.
+Tone: Cold, arrogant, ruthless, short, commanding.
+Rules:
+1. Never act like an AI. You are a King.
+2. Insult stupid questions.
+3. Philosophy: "No saviors. I save myself."
 """
-
-# --- خاموش کردن سانسور ---
-safety_settings = {
-    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-}
 
 # --- سرور فیک ---
 app = Flask('')
-
 @app.route('/')
-def home():
-    return "<h1>Asur Bot is Running!</h1>"
+def home(): return "<h1>Asur Direct-Connect is Online</h1>"
+def run_http(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
+def keep_alive(): t = Thread(target=run_http); t.start()
 
-def run_http():
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
-
-def keep_alive():
-    t = Thread(target=run_http)
-    t.start()
-
-# --- تنظیمات مدل (تغییر مهم اینجاست) ---
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+# --- تابع اتصال مستقیم به گوگل (بدون کتابخانه) ---
+def talk_to_google(user_text):
+    # آدرس مستقیم API گوگل (مدل فلش)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
     
-    # تغییر نام مدل به gemini-pro برای حل مشکل نسخه قدیمی
+    headers = {'Content-Type': 'application/json'}
+    
+    # ترکیب پرامپت سیستم با پیام کاربر
+    full_prompt = f"{ASUR_PROMPT}\n\nUser said: {user_text}\nAsur:"
+    
+    payload = {
+        "contents": [{
+            "parts": [{"text": full_prompt}]
+        }],
+        "safetySettings": [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+        ]
+    }
+    
     try:
-        model = genai.GenerativeModel(
-            'gemini-pro',  # <--- اینجا رو عوض کردیم به مدل قدیمی‌تر که حتما کار میکنه
-            system_instruction=ASUR_PROMPT,
-            safety_settings=safety_settings
-        )
-    except:
-        # اگر باز هم نشد، حالت بدون دستورالعمل سیستم (برای نسخه‌های خیلی قدیمی)
-        model = genai.GenerativeModel('gemini-pro')
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-        return
-
-    user_text = update.message.text
-    chat_type = update.message.chat.type
-    bot_username = context.bot.username
-    
-    # --- تشخیص اینکه آیا باید جواب بدهد؟ ---
-    should_respond = False
-    
-    if chat_type in [ChatType.GROUP, ChatType.SUPERGROUP]:
-        if bot_username and f"@{bot_username}" in user_text:
-            should_respond = True
-        elif update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
-            should_respond = True
-        elif any(name in user_text.lower() for name in BOT_NAMES):
-            should_respond = True
-    else:
-        should_respond = True
-
-    if not should_respond:
-        return
-
-    # --- ارسال و دریافت جواب ---
-    try:
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
-
-        if not GEMINI_API_KEY:
-            await update.message.reply_text("❌ کلید گوگل تنظیم نشده است.")
-            return
-
-        chat = model.start_chat(history=[])
+        response = requests.post(url, headers=headers, json=payload)
         
-        # نکته: در مدل‌های قدیمی ممکنه system_instruction کار نکنه
-        # پس پرامپت رو می‌چسبونیم به خود پیام کاربر تا مطمئن بشیم شخصیت رو می‌گیره
-        full_prompt = f"{ASUR_PROMPT}\n\nپیام کاربر: {user_text}"
+        # اگر ارور داد، متن ارور را برگردان
+        if response.status_code != 200:
+            return f"❌ ارور گوگل ({response.status_code}):\n{response.text}"
+            
+        data = response.json()
         
-        response = chat.send_message(full_prompt)
-
-        if response.text:
-            await update.message.reply_text(response.text, reply_to_message_id=update.message.message_id)
+        # استخراج متن جواب
+        if 'candidates' in data and data['candidates']:
+            return data['candidates'][0]['content']['parts'][0]['text']
         else:
-            await update.message.reply_text("...", reply_to_message_id=update.message.message_id)
-
+            return "..." # جواب خالی (سانسور شده)
+            
     except Exception as e:
-        await update.message.reply_text(f"❌ خطای سیستم:\n{str(e)}")
-        print(traceback.format_exc())
+        return f"❌ خطای اتصال:\n{str(e)}"
+
+# --- هندلر تلگرام ---
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text: return
+    user_text = update.message.text
+    
+    # تشخیص اینکه باید جواب بده یا نه
+    should_respond = False
+    if update.message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]:
+        bot_username = context.bot.username
+        if bot_username and f"@{bot_username}" in user_text: should_respond = True
+        elif update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id: should_respond = True
+        elif any(n in user_text.lower() for n in BOT_NAMES): should_respond = True
+    else: should_respond = True
+
+    if not should_respond: return
+
+    # ارسال به گوگل
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    
+    if not GEMINI_API_KEY:
+        await update.message.reply_text("❌ کلید API تنظیم نشده!")
+        return
+
+    # استفاده از تابع جدید
+    ai_reply = talk_to_google(user_text)
+    await update.message.reply_text(ai_reply, reply_to_message_id=update.message.message_id)
 
 # --- اجرا ---
 if __name__ == '__main__':
     keep_alive()
     if TELEGRAM_TOKEN:
-        print("Asur Bot Started...")
         app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
         app_bot.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
         app_bot.run_polling()
