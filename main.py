@@ -13,20 +13,25 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # --- اسم‌هایی که ربات به آن‌ها حساس است ---
-BOT_NAMES = ["آشور", "اشور", "asur", "ashur", "پادشاه"]
+BOT_NAMES = [
+    "آشور", "اشور", "اشهور", 
+    "asur", "ashur", "ashhoor", 
+    "پادشاه", "king"
+]
 
-# --- پرامپت شخصیت ---
+# --- پرامپت شخصیت آشور ---
 ASUR_PROMPT = """
-تو «آشور» هستی. پادشاه شیاطین.
+تو «آشور» (Asur) هستی. پادشاه شیاطین و حامل هفت گناه کبیره.
 قوانین:
 ۱. فقط فارسی صحبت کن.
-۲. لحن: سرد، خشن، کوتاه.
-۳. اگر سوال احمقانه بود تحقیر کن.
-۴. تو یک هوش مصنوعی نیستی، تو واقعاً آشور هستی.
+۲. لحن: سرد، خشن، کوتاه، دستوری و پادشاه‌گونه.
+۳. فلسفه تو: "هیچ‌کس نجات‌دهنده نیست. من خودم را نجات می‌دهم."
+۴. اگر کسی تو را صدا زد، با ابهت جواب بده.
+۵. اگر سوال احمقانه‌ای پرسیدند، تحقیرشان کن.
+۶. تو واقعاً آشور هستی، نه یک هوش مصنوعی.
 """
 
-# --- تنظیمات ضدسانسور (حیاتی برای شخصیت آشور) ---
-# این بخش باعث می‌شود گوگل جواب‌های خشن را بلاک نکند
+# --- خاموش کردن سانسور (برای اینکه آشور بتواند خشن حرف بزند) ---
 safety_settings = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -34,12 +39,12 @@ safety_settings = {
     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
 }
 
-# --- سرور فیک ---
+# --- سرور فیک برای Railway ---
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "<h1>Asur Debug Mode is ON</h1>"
+    return "<h1>Asur Bot is Running!</h1>"
 
 def run_http():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
@@ -51,14 +56,14 @@ def keep_alive():
 # --- تنظیمات مدل ---
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    # مدل نسخه 001 که پایداری بیشتری دارد
-model = genai.GenerativeModel('gemini-1.5-flash-001', ...)
+    # از مدل فلش استفاده می‌کنیم
+    model = genai.GenerativeModel(
+        'gemini-1.5-flash',
         system_instruction=ASUR_PROMPT,
         safety_settings=safety_settings
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # اگر پیام متنی نیست، ولش کن
     if not update.message or not update.message.text:
         return
 
@@ -70,13 +75,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     should_respond = False
     
     if chat_type in [ChatType.GROUP, ChatType.SUPERGROUP]:
-        # اگر منشن شد (@Bot)
+        # ۱. منشن (@Bot)
         if bot_username and f"@{bot_username}" in user_text:
             should_respond = True
-        # اگر ریپلای شد
+        # ۲. ریپلای روی پیام ربات
         elif update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
             should_respond = True
-        # اگر اسمش صدا زده شد
+        # ۳. صدا زدن اسم (هر مدلی که بنویسی)
         elif any(name in user_text.lower() for name in BOT_NAMES):
             should_respond = True
     else:
@@ -86,57 +91,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not should_respond:
         return
 
-    # --- شروع فرآیند ارسال و دیباگ ---
+    # --- ارسال و دریافت جواب ---
     try:
-        # 1. اعلام وضعیت تایپینگ
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
 
-        # 2. چک کردن کلید
         if not GEMINI_API_KEY:
-            await update.message.reply_text("🐞 ارور دیباگ: کلید GEMINI_API_KEY در Railway تنظیم نشده است!")
+            await update.message.reply_text("❌ کلید گوگل تنظیم نشده است.")
             return
 
-        # 3. ارسال به گوگل
+        # شروع چت
         chat = model.start_chat(history=[])
         response = chat.send_message(user_text)
 
-        # 4. بررسی جواب گوگل (مهمترین بخش دیباگ)
-        # گاهی گوگل جواب می‌دهد اما متنش خالی است (فیلتر شده)
+        # اگر جواب متن داشت بفرست، اگر خالی بود (سانسور شد) باز هم بگو
         if response.text:
             await update.message.reply_text(response.text, reply_to_message_id=update.message.message_id)
         else:
-            # اگر متن خالی بود، دلیلش را پیدا می‌کنیم
-            feedback = response.prompt_feedback
-            await update.message.reply_text(f"⚠️ گوگل جواب نداد! (سانسور شد)\nدلیل: {feedback}")
+            await update.message.reply_text("... (گوگل سکوت کرد)", reply_to_message_id=update.message.message_id)
 
     except Exception as e:
-        # 5. گیر انداختن هرگونه ارور و ارسال به چت
-        error_message = str(e)
-        trace_log = traceback.format_exc() # متن کامل ارور فنی
-        
-        # خلاصه ارور برای کاربر
-        final_msg = f"❌ **خطای سیستم:**\n{error_message}"
-        
-        # تشخیص ارورهای معروف برای راهنمایی
-        if "400" in error_message:
-            final_msg += "\n\n💡 راهنما: کلید API اشتباه است یا اعتبارش تمام شده."
-        elif "429" in error_message:
-            final_msg += "\n\n💡 راهنما: درخواست‌ها زیاد بوده (Resource Exhausted)."
-        elif "500" in error_message:
-            final_msg += "\n\n💡 راهنما: سرور گوگل قطع است. دوباره تلاش کن."
-        elif "User location" in error_message:
-            final_msg += "\n\n💡 راهنما: سرور Railway تحریم شده. (بعید است)."
-            
-        await update.message.reply_text(final_msg, reply_to_message_id=update.message.message_id)
-        print(trace_log) # چاپ در لاگ‌های سرور
+        # سیستم گزارش خطا در چت
+        error_msg = str(e)
+        if "404" in error_msg:
+             await update.message.reply_text("❌ ارور ۴۰۴: کتابخانه آپدیت نشده. کش Railway را پاک کنید.")
+        elif "400" in error_msg:
+             await update.message.reply_text("❌ ارور ۴۰۰: کلید API مشکل دارد.")
+        elif "500" in error_msg:
+             await update.message.reply_text("❌ سرور گوگل قطع است. دوباره تلاش کن.")
+        else:
+             await update.message.reply_text(f"❌ خطای عجیب:\n{error_msg}")
+             print(traceback.format_exc())
 
 # --- اجرا ---
 if __name__ == '__main__':
     keep_alive()
     if TELEGRAM_TOKEN:
-        print("Debugging Bot Started...")
+        print("Asur Bot Started...")
         app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
         app_bot.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
         app_bot.run_polling()
-    else:
-        print("CRITICAL ERROR: TELEGRAM_TOKEN is missing!")
