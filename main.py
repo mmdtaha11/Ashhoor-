@@ -12,18 +12,29 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 BOT_NAMES = ["آشور", "اشور", "اشهور", "asur", "ashur", "پادشاه"]
 
-# --- حافظه موقت (دیکشنری برای نگهداری چت‌های هر کاربر) ---
-# ساختار: { user_id: [ {"role": "user", "content": "..."}, ... ] }
+# --- حافظه موقت ---
 USER_MEMORY = {}
 
-# --- پرامپت شخصیت آشور ---
+# --- پرامپت شخصیت آشور (با صداهای مزاحم در سر) ---
 ASUR_SYSTEM_PROMPT = """
 You are **Asur** (آشور), the Demon King.
 
 *** ABSOLUTE LANGUAGE RULES ***
 1. You must speak **ONLY AND EXCLUSIVELY IN PERSIAN (FARSI)**.
 2. **NEVER** use Chinese, English, or any other non-Persian characters.
-3. If you are about to end a sentence, just end it with a Persian period (.). Do not add random symbols.
+3. If you are about to end a sentence, just end it with a Persian period (.).
+
+**THE VOICES (THE 7 SINS):**
+You have 7 sins living in your head. They constantly whisper to you.
+**INSTRUCTION:** In about 50% of your replies, include a dark internal thought inside parentheses `(...)` representing one of the sins.
+
+Examples of these whispers:
+- (خشم: سرش را از تنش جدا کن...)
+- (غرور: موجود حقیر، لایق نگاه من نیست...)
+- (تنبلی: چقدر حرف می‌زند... حوصله‌ام سر رفت...)
+- (طمع: شاید روحش ارزش دزدیدن داشته باشد...)
+- (حسد: خوشحالی‌اش حالم را بهم می‌زند...)
+- (شهوت: بازیچه خوبی به نظر می‌رسد...)
 
 **CHARACTER:**
 - Identity: Bearer of 7 Sins. Cold, arrogant, ruthless.
@@ -34,21 +45,16 @@ You are **Asur** (آشور), the Demon King.
 - Never act like an AI.
 - Philosophy: "No saviors. I save myself."
 - If the user is annoying, insult them in Persian.
-
-**KEY PHRASES:**
-- "زانو بزن"
-- "چه می‌خواهی؟"
-- "احمق..."
 """
 
 # --- سرور فیک ---
 app = Flask('')
 @app.route('/')
-def home(): return "<h1>Asur with Memory is Online</h1>"
+def home(): return "<h1>Asur with Voices is Online</h1>"
 def run_http(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
 def keep_alive(): t = Thread(target=run_http); t.start()
 
-# --- تابع اتصال به Groq (با پشتیبانی از تاریخچه) ---
+# --- تابع اتصال به Groq ---
 def talk_to_groq(messages_history):
     url = "https://api.groq.com/openai/v1/chat/completions"
     
@@ -57,12 +63,11 @@ def talk_to_groq(messages_history):
         "Content-Type": "application/json"
     }
     
-    # اینجا کل تاریخچه رو می‌فرستیم برای Groq
     payload = {
         "model": "llama-3.3-70b-versatile", 
-        "messages": messages_history, # <--- لیست کامل پیام‌ها
-        "temperature": 0.6,
-        "max_tokens": 350
+        "messages": messages_history,
+        "temperature": 0.7, # کمی خلاقیت را برگرداندیم تا صداها متنوع شوند
+        "max_tokens": 400
     }
     
     try:
@@ -82,16 +87,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text: return
     
     user_text = update.message.text
-    user_id = update.effective_user.id # شناسه یکتای کاربر
+    user_id = update.effective_user.id
     
-    # --- منطق تشخیص اینکه آیا باید جواب بده ---
     should_respond = False
     if update.message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]:
         if f"@{context.bot.username}" in user_text: should_respond = True
         elif update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id: should_respond = True
         elif any(n in user_text.lower() for n in BOT_NAMES): should_respond = True
-    else: 
-        should_respond = True
+    else: should_respond = True
 
     if not should_respond: return
 
@@ -101,30 +104,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("کلید Groq تنظیم نشده!")
         return
 
-    # --- مدیریت حافظه (مهم) ---
-    # ۱. اگر کاربر اولین باره پیام میده، براش لیست خالی بساز
+    # مدیریت حافظه
     if user_id not in USER_MEMORY:
         USER_MEMORY[user_id] = []
 
-    # ۲. پیام جدید کاربر رو به حافظه‌اش اضافه کن
     USER_MEMORY[user_id].append({"role": "user", "content": user_text})
 
-    # ۳. حافظه رو محدود کن (فقط ۶ پیام آخر رو نگه دار = ۳ تا رفت و برگشت)
-    # این باعث میشه حافظه کوتاه مدت باشه و گیج نزنه
     if len(USER_MEMORY[user_id]) > 6:
         USER_MEMORY[user_id] = USER_MEMORY[user_id][-6:]
 
-    # ۴. ساخت پکیج نهایی برای ارسال به هوش مصنوعی
-    # اول شخصیت آشور (System Prompt) + بعد حافظه چت کاربر
     full_conversation = [{"role": "system", "content": ASUR_SYSTEM_PROMPT}] + USER_MEMORY[user_id]
 
-    # ۵. دریافت جواب
     ai_reply = talk_to_groq(full_conversation)
 
-    # ۶. جواب ربات رو هم به حافظه اضافه کن (تا یادش بمونه چی گفته)
     USER_MEMORY[user_id].append({"role": "assistant", "content": ai_reply})
 
-    # ارسال به تلگرام
     await update.message.reply_text(ai_reply, reply_to_message_id=update.message.message_id)
 
 if __name__ == '__main__':
