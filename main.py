@@ -28,11 +28,11 @@ You must roleplay this character perfectly.
 # --- سرور فیک ---
 app = Flask('')
 @app.route('/')
-def home(): return "<h1>Asur (Powered by Groq) is Online</h1>"
+def home(): return "<h1>Asur (Powered by Groq Llama 3.3) is Online</h1>"
 def run_http(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
 def keep_alive(): t = Thread(target=run_http); t.start()
 
-# --- تابع اتصال به Groq (Llama 3) ---
+# --- تابع اتصال به Groq (با مدل جدید) ---
 def talk_to_groq(user_text):
     url = "https://api.groq.com/openai/v1/chat/completions"
     
@@ -42,12 +42,13 @@ def talk_to_groq(user_text):
     }
     
     payload = {
-        "model": "llama3-70b-8192",  # مدل قدرتمند لاما ۳
+        # --- تغییر مهم: استفاده از مدل جدید ---
+        "model": "llama-3.3-70b-versatile", 
         "messages": [
             {"role": "system", "content": ASUR_SYSTEM_PROMPT},
             {"role": "user", "content": user_text}
         ],
-        "temperature": 0.7  # خلاقیت مناسب
+        "temperature": 0.7
     }
     
     try:
