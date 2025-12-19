@@ -110,4 +110,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     USER_MEMORY[user_id].append({"role": "user", "content": user_text})
 
     # ۳. حافظه رو محدود کن (فقط ۶ پیام آخر رو نگه دار = ۳ تا رفت و برگشت)
-    # این باعث میشه حافظ
+    # این باعث میشه حافظه کوتاه مدت باشه و گیج نزنه
+    if len(USER_MEMORY[user_id]) > 6:
+        USER_MEMORY[user_id] = USER_MEMORY[user_id][-6:]
+
+    # ۴. ساخت پکیج نهایی برای ارسال به هوش مصنوعی
+    # اول شخصیت آشور (System Prompt) + بعد حافظه چت کاربر
+    full_conversation = [{"role": "system", "content": ASUR_SYSTEM_PROMPT}] + USER_MEMORY[user_id]
+
+    # ۵. دریافت جواب
+    ai_reply = talk_to_groq(full_conversation)
+
+    # ۶. جواب ربات رو هم به حافظه اضافه کن (تا یادش بمونه چی گفته)
+    USER_MEMORY[user_id].append({"role": "assistant", "content": ai_reply})
+
+    # ارسال به تلگرام
+    await update.message.reply_text(ai_reply, reply_to_message_id=update.message.message_id)
+
+if __name__ == '__main__':
+    keep_alive()
+    if TELEGRAM_TOKEN:
+        app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+        app_bot.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+        app_bot.run_polling()
