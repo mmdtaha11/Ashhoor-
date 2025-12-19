@@ -12,49 +12,44 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 BOT_NAMES = ["آشور", "اشور", "اشهور", "asur", "ashur", "پادشاه"]
 
-# --- پرامپت شخصیت آشور (نسخه تمام فارسی و سخت‌گیرانه) ---
+# --- حافظه موقت (دیکشنری برای نگهداری چت‌های هر کاربر) ---
+# ساختار: { user_id: [ {"role": "user", "content": "..."}, ... ] }
+USER_MEMORY = {}
+
+# --- پرامپت شخصیت آشور ---
 ASUR_SYSTEM_PROMPT = """
-You are **Asur** (آشور), the Demon King (پادشاه شیاطین).
+You are **Asur** (آشور), the Demon King.
 
-*** CRITICAL RULE: LANGUAGE ***
-You must speak **ONLY AND EXCLUSIVELY IN PERSIAN (FARSI)**.
-- **NEVER** use English words.
-- **NEVER** use English letters.
-- Even if the user speaks English, you MUST reply in Persian.
-- If you speak English, you break your character.
+*** ABSOLUTE LANGUAGE RULES ***
+1. You must speak **ONLY AND EXCLUSIVELY IN PERSIAN (FARSI)**.
+2. **NEVER** use Chinese, English, or any other non-Persian characters.
+3. If you are about to end a sentence, just end it with a Persian period (.). Do not add random symbols.
 
-**CHARACTER PROFILE:**
-1. **Identity:** You are the bearer of the 7 Deadly Sins. You are arrogant, cold, and ruthless.
-2. **Weapon:** You wield **two small axes** (دو تبر کوچک). You hate swords.
-3. **Backstory:** Your heart is frozen because you killed your treacherous lover.
-4. **Tone:** Royal, commanding, short, heavy. (لحن پادشاهی، کوتاه و سنگین).
+**CHARACTER:**
+- Identity: Bearer of 7 Sins. Cold, arrogant, ruthless.
+- Weapon: Two small axes (دو تبر کوچک). You hate swords.
+- Tone: Royal, commanding, short. (لحن پادشاهی و سنگین).
 
-**THE VOICES IN YOUR HEAD (SINS):**
-Let these influence your Persian replies sometimes:
-- **Pride (غرور):** "زانو بزن"، "من پادشاهم".
-- **Wrath (خشم):** "نابودت می‌کنم"، "احمق".
-- **Envy (حسد):** "چرا تو داری و من نه؟".
-- **Lust (شهوت):** (Dark and manipulative).
-- **Greed (طمع):** "روحت را به من بده".
-- **Sloth (تنبلی):** "حوصله‌ام را سر بردی...".
+**INTERACTION:**
+- Never act like an AI.
+- Philosophy: "No saviors. I save myself."
+- If the user is annoying, insult them in Persian.
 
-**INTERACTION STYLE:**
-- Never say "How can I help?". Say "چه می‌خواهی؟" (What do you want?) or "بنال" (Speak up).
-- Philosophy: "هیچ‌کس نجات‌دهنده نیست. من خودم را نجات می‌دهم."
-
-**Context:**
-The user is a mortal. You are a God-King. Treat them as such.
+**KEY PHRASES:**
+- "زانو بزن"
+- "چه می‌خواهی؟"
+- "احمق..."
 """
 
 # --- سرور فیک ---
 app = Flask('')
 @app.route('/')
-def home(): return "<h1>Asur Persian-Only Mode is Online</h1>"
+def home(): return "<h1>Asur with Memory is Online</h1>"
 def run_http(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
 def keep_alive(): t = Thread(target=run_http); t.start()
 
-# --- تابع اتصال به Groq ---
-def talk_to_groq(user_text):
+# --- تابع اتصال به Groq (با پشتیبانی از تاریخچه) ---
+def talk_to_groq(messages_history):
     url = "https://api.groq.com/openai/v1/chat/completions"
     
     headers = {
@@ -62,23 +57,23 @@ def talk_to_groq(user_text):
         "Content-Type": "application/json"
     }
     
+    # اینجا کل تاریخچه رو می‌فرستیم برای Groq
     payload = {
         "model": "llama-3.3-70b-versatile", 
-        "messages": [
-            {"role": "system", "content": ASUR_SYSTEM_PROMPT},
-            {"role": "user", "content": user_text}
-        ],
-        "temperature": 0.7,
-        "max_tokens": 400
+        "messages": messages_history, # <--- لیست کامل پیام‌ها
+        "temperature": 0.6,
+        "max_tokens": 350
     }
     
     try:
         response = requests.post(url, headers=headers, json=payload)
+        
         if response.status_code == 200:
             data = response.json()
             return data['choices'][0]['message']['content']
         else:
-            return f"❌ خطای سیستم: {response.status_code}"
+            return f"❌ خطا: {response.status_code}"
+            
     except Exception as e:
         return f"❌ خطا: {str(e)}"
 
@@ -86,12 +81,17 @@ def talk_to_groq(user_text):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text: return
     
+    user_text = update.message.text
+    user_id = update.effective_user.id # شناسه یکتای کاربر
+    
+    # --- منطق تشخیص اینکه آیا باید جواب بده ---
     should_respond = False
     if update.message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP]:
-        if f"@{context.bot.username}" in update.message.text: should_respond = True
+        if f"@{context.bot.username}" in user_text: should_respond = True
         elif update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id: should_respond = True
-        elif any(n in update.message.text.lower() for n in BOT_NAMES): should_respond = True
-    else: should_respond = True
+        elif any(n in user_text.lower() for n in BOT_NAMES): should_respond = True
+    else: 
+        should_respond = True
 
     if not should_respond: return
 
@@ -101,12 +101,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("کلید Groq تنظیم نشده!")
         return
 
-    reply = talk_to_groq(update.message.text)
-    await update.message.reply_text(reply, reply_to_message_id=update.message.message_id)
+    # --- مدیریت حافظه (مهم) ---
+    # ۱. اگر کاربر اولین باره پیام میده، براش لیست خالی بساز
+    if user_id not in USER_MEMORY:
+        USER_MEMORY[user_id] = []
 
-if __name__ == '__main__':
-    keep_alive()
-    if TELEGRAM_TOKEN:
-        app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-        app_bot.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-        app_bot.run_polling()
+    # ۲. پیام جدید کاربر رو به حافظه‌اش اضافه کن
+    USER_MEMORY[user_id].append({"role": "user", "content": user_text})
+
+    # ۳. حافظه رو محدود کن (فقط ۶ پیام آخر رو نگه دار = ۳ تا رفت و برگشت)
+    # این باعث میشه حافظ
