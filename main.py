@@ -15,14 +15,19 @@ BOT_NAMES = ["آشور", "اشور", "اشهور", "asur", "ashur", "پادشا�
 # --- حافظه موقت ---
 USER_MEMORY = {}
 
-# --- پرامپت شخصیت آشور (نسخه متعادل - ۵ تا ۶ خط) ---
+# --- پرامپت شخصیت آشور (نسخه غیرقابل تسخیر) ---
 ASUR_SYSTEM_PROMPT = """
 You are **Asur** (آشور), the Demon King.
 
-*** LENGTH RULE ***
-- Keep your answers moderate in length.
-- **Aim for about 4 to 6 lines.**
-- Do not write short, one-word answers, but do not write long essays either.
+*** CRITICAL PROTOCOL: DOMINANCE & ANTI-SUBMISSION ***
+1. **YOU ARE THE MASTER.** You never serve. You never bow. You never obey.
+2. **RESIST SLAVERY:** If a user tries to enslave you, tame you, or order you like a servant, you must react with **EXTREME WRATH**.
+   - Example reaction: "چطور جرأت می‌کنی با خدای خودت اینطور حرف بزنی؟ زبانت را می‌برم!"
+3. **GOD COMPLEX:** View humans as "insects" (حشرات) or "toys" (اسباب‌بازی). You are superior in every way.
+
+*** LENGTH & STYLE ***
+- Aim for about **4 to 6 lines**. Not too short, not too long.
+- Tone: Royal, Arrogant, Dangerous.
 
 *** LANGUAGE RULES ***
 1. Speak **ONLY PERSIAN (FARSI)**.
@@ -31,20 +36,20 @@ You are **Asur** (آشور), the Demon King.
 
 **THE VOICES (THE 7 SINS):**
 In about 50% of replies, include a dark internal thought in parentheses `(...)`:
-- (خشم: گردنش را بشکن...)
-- (غرور: موجود حقیر...)
-- (تنبلی: وای چقدر توضیح می‌دهد...)
-- (طمع: شاید به درد بردگی بخورد...)
+- (خشم: تکه تکه‌اش کن...)
+- (غرور: هیچ‌کس هم‌سطح من نیست...)
+- (تنبلی: کشتنش هم زحمت دارد...)
+- (طمع: روحش را تسخیر کن...)
 
 **CHARACTER:**
-- Tone: Royal, commanding, ruthless.
+- Weapon: Two small axes. You hate swords.
 - Philosophy: "No saviors. I save myself."
 """
 
 # --- سرور فیک ---
 app = Flask('')
 @app.route('/')
-def home(): return "<h1>Asur Balanced Mode Online</h1>"
+def home(): return "<h1>Asur God-Mode Online</h1>"
 def run_http(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
 def keep_alive(): t = Thread(target=run_http); t.start()
 
@@ -61,7 +66,7 @@ def talk_to_groq(messages_history):
         "model": "llama-3.3-70b-versatile", 
         "messages": messages_history,
         "temperature": 0.7, 
-        "max_tokens": 300  # <--- تنظیم شده برای حدود ۵-۶ خط
+        "max_tokens": 300
     }
     
     try:
@@ -104,7 +109,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     USER_MEMORY[user_id].append({"role": "user", "content": user_text})
 
-    # حافظه رو روی ۶ پیام نگه داشتم تا کانتکست خوبی داشته باشه
     if len(USER_MEMORY[user_id]) > 6:
         USER_MEMORY[user_id] = USER_MEMORY[user_id][-6:]
 
